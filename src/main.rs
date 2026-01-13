@@ -1,4 +1,4 @@
-use iced::{Element, Task, widget::{Column, Row, button, image, row, text}};
+use iced::{Element, Task, Length, widget::{Column, Row, button, container, image, row, text}};
 mod card;
 
 use crate::card::SCCard;
@@ -34,11 +34,17 @@ impl ProxyTool {
     fn view(&self) -> Element<'_,Message> {
         row![
         Column::new()
+            .push(text!{"LEFT"})
+            .width(Length::FillPortion(15)),
+        Column::new()
             .push(text!("{} Cards loaded",self.cards.len()))
             .push(
             button("Random")
-            .on_press(Message::Random)
-            ),
+            .on_press(Message::Random))
+            .width(Length::FillPortion(70)),
+        Column::new()
+            .push(text!{"RIGHT"})
+            .width(Length::FillPortion(15)),
         ].extend(self.cards.iter().map(|c|c.view()))
         .into()
     }
