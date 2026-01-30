@@ -1,0 +1,20 @@
+[package]
+name = "ProxTool"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+bytes = "1.11.0"
+chashmap = "2.2.2"
+clap = { version = "4.5.55", features = ["derive"] }
+env_logger = "0.11.8"
+futures-util = "0.3.31"
+glob = "0.3.3"
+image = "0.25.9"
+log = "0.4.29"
+reqwest = { version = "0.13.1", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
+url = { version = "2.5.8", features = ["serde"] }
