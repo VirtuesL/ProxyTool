@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use log::{debug, error};
 use serde::{Deserialize, forward_to_deserialize_any};
 
 pub struct CardDeserializer<'de> {
@@ -84,7 +85,7 @@ impl<'de> CardDeserializer<'de> {
             Ok(ch) => {
                 self.input = &self.input[ch.len_utf8()..];
             }
-            Err(er) => {}
+            Err(_er) => {}
         };
     }
 
@@ -93,7 +94,7 @@ impl<'de> CardDeserializer<'de> {
             Some(len) => {
                 let s = &self.input[..len];
                 self.input = &self.input[len + 1..];
-                Ok(s)
+                Ok(s.trim())
             }
             None => {
                 if !self.input.is_empty() {
@@ -117,7 +118,7 @@ impl<'de> CardDeserializer<'de> {
                 }
                 _ => {
                     self.eat_char();
-                    self.eat_char();
+                    self.input = self.input.trim_start();
                     return Ok(int);
                 }
             }
@@ -139,7 +140,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut CardDeserializer<'de> {
             '0'..='9' => self.deserialize_u16(visitor),
             'A'..='Z' => self.deserialize_str(visitor),
             'a'..='z' => self.deserialize_str(visitor),
-            _ => Err(Error::Syntax),
+            _ => {error!("Failed to parse on line {}",self.input); Err(Error::Syntax)},
         }
     }
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>

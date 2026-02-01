@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use log::info;
+use log::{debug, info, warn};
 use reqwest::Url;
 use serde::Deserialize;
 
@@ -180,7 +180,7 @@ impl TryFrom<Vec<BulkEntry>> for BulkDB {
             } = item;
             match map.entry(name.clone()) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
-                    info!("duplicate entry: {:?}", entry)
+                    debug!("duplicate entry: {:?}", entry)
                 }
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     entry.insert(BulkEntry {

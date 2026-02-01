@@ -1,5 +1,5 @@
 use clap::Parser;
-use futures_util::{StreamExt, future::JoinAll, stream};
+use futures_util::{StreamExt, stream};
 use std::{
     io::{Cursor, IsTerminal, Read, Write},
     path::PathBuf,
@@ -83,8 +83,9 @@ async fn main() {
         let _read = stdin.read_to_string(&mut cardtext);
         cardtext
     };
-    let mut cards = parser::from_str::<Vec<CardEntry>>(&cardtext).unwrap();
-    info!("Got {} cards", cards.len());
+    let cards = parser::from_str::<Vec<CardEntry>>(&cardtext);
+    info!("Got {:?} cards", cards);
+    let mut cards = cards.unwrap();
     let database = database_handle.await;
     match database {
         Ok(ref db) => {
@@ -92,6 +93,8 @@ async fn main() {
                 let foundc = db.0.get(&card.name);
                 if let Some(dbc) = foundc {
                     card.url = dbc.image_uris.as_ref().map(|uris| uris.png.as_str());
+                } else {
+                    warn!("couldn't find card in database : {}",card.name)
                 };
             });
         }
@@ -134,7 +137,7 @@ fn generate_proxy_pages(
     std::fs::create_dir_all(output_dir)?;
 
     // Collect unique card names
-
+    let cards = cards.iter().flat_map(|c|{vec![c.clone(); c.quantity as usize] }).collect::<Vec<CardEntry>>();
     for (page_num, card_chunk) in cards.chunks(9).enumerate() {
         info!("Generating page {page_num}");
         let mut page = ImageBuffer::new(A4_WIDTH as u32, A4_HEIGHT as u32);
