@@ -2,7 +2,7 @@ use clap::Parser;
 use futures_util::{StreamExt, stream};
 use std::{
     io::{Cursor, IsTerminal, Read, Write},
-    path::PathBuf,
+    path::PathBuf, process::exit, str::FromStr,
 };
 
 use crate::types::{BulkDB, CardEntry};
@@ -30,14 +30,9 @@ async fn main() {
         .user_agent(APP_USER_AGENT)
         .build()
         .unwrap();
-    let database_handle = if let Some(path) = glob::glob("oracle-cards-*").unwrap().next() {
+    let database_name = if let Some(path) = glob::glob("oracle-cards-*").unwrap().next() {
         info!("We have db. parsing, this may take a second");
-        tokio::spawn(async move {
-            let testjson = std::fs::read(path.unwrap()).unwrap();
-            let parsed = serde_json::from_slice::<BulkDB>(&testjson).unwrap();
-            info!("parsed {:?} cards", parsed.0.len());
-            parsed
-        })
+        path.map_err(anyhow::Error::new)
     } else {
         warn!("No db found, updating with default db");
         let res = client
@@ -65,14 +60,12 @@ async fn main() {
             .await
             .unwrap();
         let _ = dest.write(&b);
-        let db = db_name.to_string();
-        tokio::spawn(async move {
-            let testjson = std::fs::read(db).unwrap();
-            let parsed = serde_json::from_slice::<BulkDB>(&testjson).unwrap();
-            info!("parsed {:?} cards", parsed.0.len());
-            parsed
-        })
+        PathBuf::from_str(db_name).map_err(anyhow::Error::new)
     };
+    let testjson = std::fs::read(database_name.unwrap()).unwrap();
+    let database_handle = tokio::spawn(async move {
+        serde_json::from_slice::<BulkDB>(&testjson)
+    });
     let mut stdin = std::io::stdin();
     let cardtext = if stdin.is_terminal() {
         let args = Args::parse();
@@ -83,16 +76,34 @@ async fn main() {
         let _read = stdin.read_to_string(&mut cardtext);
         cardtext
     };
-    let cards = parser::from_str::<Vec<CardEntry>>(&cardtext);
+    let cards = parser::from_str::<Vec<CardEntry>>(&cardtext).unwrap();
     info!("Got {:?} cards", cards);
-    let mut cards = cards.unwrap();
-    let database = database_handle.await;
+    let mut cards: Vec<CardEntry> = cards.into_iter()
+        .flat_map(|card| if card.backface.is_some(){let mut c2 = card.clone(); c2.backface.replace(true); vec![card.clone(),c2]}else{vec![card]})
+        .collect();
+    let database = database_handle.await.unwrap();
     match database {
         Ok(ref db) => {
             cards.iter_mut().for_each(|card| {
                 let foundc = db.0.get(&card.name);
                 if let Some(dbc) = foundc {
-                    card.url = dbc.image_uris.as_ref().map(|uris| uris.png.as_str());
+                    let source = match dbc.layout {
+                        types::CardLayout::DoubleFacedToken | types::CardLayout::Flip | types::CardLayout::Meld | types::CardLayout::Transform
+                            => {
+                                if let Some(ref faces) = dbc.card_faces {
+                                    match card.backface {
+                                        Some(false) => &faces[0].image_uris,
+                                        Some(true) => &faces[1].image_uris,
+                                        None => &dbc.image_uris
+
+                                    }
+                                } else {&dbc.image_uris}
+                            },
+                        _   => {&dbc.image_uris}
+
+                    };
+                    if let Some(uri) = source {card.url = Some(uri.png.as_str())};
+                    
                 } else {
                     warn!("couldn't find card in database : {}",card.name)
                 };
@@ -102,7 +113,6 @@ async fn main() {
             panic!("couldnt complete db, {}", e)
         }
     }
-    info!("processed all cards");
     let bodies = stream::iter(cards)
         .map(|mut card| {
             let client = &client;
@@ -114,7 +124,9 @@ async fn main() {
                         let bytes = resp.bytes().await;
                         card.data = bytes.map(Some).expect(":)")
                     }
-                    None => warn!("could not find card downlaod image for {}", card.name),
+                    None => {
+                        warn!("could not find card downlaod image for {}", card.name);
+                    },
                 };
                 card
             }
@@ -137,7 +149,7 @@ fn generate_proxy_pages(
     std::fs::create_dir_all(output_dir)?;
 
     // Collect unique card names
-    let cards = cards.iter().flat_map(|c|{vec![c.clone(); c.quantity as usize] }).collect::<Vec<CardEntry>>();
+    let cards = cards.iter().flat_map(|c|{vec![c; c.quantity as usize] }).collect::<Vec<&CardEntry>>();
     for (page_num, card_chunk) in cards.chunks(9).enumerate() {
         info!("Generating page {page_num}");
         let mut page = ImageBuffer::new(A4_WIDTH as u32, A4_HEIGHT as u32);

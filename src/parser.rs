@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
-use log::{debug, error};
-use serde::{Deserialize, forward_to_deserialize_any};
+use log::error;
+use serde::{Deserialize, Deserializer, forward_to_deserialize_any};
 
 pub struct CardDeserializer<'de> {
     // This string starts with the input data and characters are truncated off
@@ -89,17 +89,30 @@ impl<'de> CardDeserializer<'de> {
         };
     }
 
+    fn peek_str(&mut self) -> Result<&str, Error> {
+        match self.input.find('\n') {
+            Some(len) => {
+                Ok(&self.input[..len])
+            }
+            None => {
+                if !self.input.is_empty() {
+                    Ok(self.input)
+                } else {
+                    Err(Error::Eof)
+                }
+            }
+        }
+    }
     fn parse_str(&mut self) -> Result<&str, Error> {
         match self.input.find('\n') {
             Some(len) => {
                 let s = &self.input[..len];
                 self.input = &self.input[len + 1..];
-                Ok(s.trim())
+                Ok(s.trim()) // serde cannot borrow here
             }
             None => {
                 if !self.input.is_empty() {
-                    let s = &self.input;
-                    Ok(s)
+                    Ok(self.input)
                 } else {
                     Err(Error::Eof)
                 }
@@ -138,8 +151,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut CardDeserializer<'de> {
     {
         match self.peek_char()? {
             '0'..='9' => self.deserialize_u16(visitor),
-            'A'..='Z' => self.deserialize_str(visitor),
-            'a'..='z' => self.deserialize_str(visitor),
+            'A'..='Z' | 'a'..='z' => self.deserialize_str(visitor),
             _ => {error!("Failed to parse on line {}",self.input); Err(Error::Syntax)},
         }
     }
@@ -161,6 +173,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut CardDeserializer<'de> {
     {
         visitor.visit_seq(self)
     }
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de> {
+        visitor.visit_bool(false)
+    }
     fn deserialize_struct<V>(
         self,
         _name: &'static str,
@@ -172,10 +189,19 @@ impl<'de> serde::de::Deserializer<'de> for &mut CardDeserializer<'de> {
     {
         visitor.visit_seq(&mut *self)
     }
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de> {
+        if self.input.is_empty() { return visitor.visit_none()}
+        match self.peek_str()?.find("//") {
+            Some(_) => visitor.visit_some(self),
+            None => visitor.visit_none()
+        }
+    }
     forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u32 u64 u128 f32 f64 char string
-        bytes byte_buf option unit unit_struct map newtype_struct tuple
-        tuple_struct enum identifier ignored_any
+        i8 i16 i32 i64 i128 u8 u32 u64 u128 f32 f64 char
+        bytes byte_buf unit unit_struct map newtype_struct tuple
+        tuple_struct enum identifier ignored_any string
     }
 }
 

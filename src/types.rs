@@ -4,9 +4,10 @@ use std::{
 };
 
 use bytes::Bytes;
-use log::{debug, info, warn};
+use log::debug;
 use reqwest::Url;
 use serde::Deserialize;
+
 
 #[derive(Deserialize, Debug, PartialEq)]
 pub enum BulkType {
@@ -104,9 +105,43 @@ pub enum Colors {
     Colorless,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")] 
+pub enum CardLayout {
+    Normal,
+    Transform,
+    ArtSeries,
+    Token,
+    Class,
+    Planar,
+    Saga,
+    Scheme,
+    DoubleFacedToken,
+    Meld,
+    Prototype,
+    Vanguard,
+    Emblem,
+    ModalDfc,
+    Split,
+    Adventure,
+    Augment,
+    Flip,
+    Host,
+    Mutate,
+    Leveler,
+    Case,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "Vec<BulkEntry>")]
 pub struct BulkDB(pub HashMap<String, BulkEntry>);
+
+#[derive(Debug,Deserialize)]
+pub struct CardFaces {
+    pub name: String,
+    pub image_uris: Option<BulkImageUris>
+}
+
 
 #[derive(Deserialize, Debug)]
 pub struct BulkEntry {
@@ -117,10 +152,11 @@ pub struct BulkEntry {
     pub lang: BulkLanguage,
     pub uri: Url,
     pub scryfall_uri: Url,
-    pub layout: String, // Should be enum
+    pub layout: CardLayout,
     pub highres_image: bool,
     pub image_status: String, //Should be enum
     pub image_uris: Option<BulkImageUris>,
+    pub card_faces: Option<Vec<CardFaces>>
     // oracle_text: String,
     // colors: Vec<Colors>,
     // color_identity: Vec<Colors>,
@@ -149,9 +185,11 @@ impl Display for BulkImageUris {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize,Clone)]
 pub struct CardEntry<'a> {
     pub quantity: u32,
+    pub backface: Option<bool>, // None -> Not double sided ---- WARNING THE DESER IMPL IS NOT
+                                // STANDARD WILL NOT WORK FOR ANY OTHER FIELD
     pub name: String,
     #[serde(skip)]
     pub url: Option<&'a str>,
@@ -177,6 +215,7 @@ impl TryFrom<Vec<BulkEntry>> for BulkDB {
                 highres_image,
                 image_status,
                 image_uris,
+                card_faces
             } = item;
             match map.entry(name.clone()) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
@@ -194,6 +233,7 @@ impl TryFrom<Vec<BulkEntry>> for BulkDB {
                         highres_image,
                         image_status,
                         image_uris,
+                        card_faces,
                     });
                 }
             };
