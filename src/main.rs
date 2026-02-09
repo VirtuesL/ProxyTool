@@ -76,43 +76,11 @@ async fn main() {
         let _read = stdin.read_to_string(&mut cardtext);
         cardtext
     };
-    let cards = parser::from_str::<Vec<CardEntry>>(&cardtext).unwrap();
+    let mut cards = parser::from_str::<Vec<CardEntry>>(&cardtext).unwrap();
     info!("Got {:?} cards", cards);
-    let mut cards: Vec<CardEntry> = cards.into_iter()
-        .flat_map(|card| if card.backface.is_some(){let mut c2 = card.clone(); c2.backface.replace(true); vec![card.clone(),c2]}else{vec![card]})
-        .collect();
-    let database = database_handle.await.unwrap();
-    match database {
-        Ok(ref db) => {
-            cards.iter_mut().for_each(|card| {
-                let foundc = db.0.get(&card.name);
-                if let Some(dbc) = foundc {
-                    let source = match dbc.layout {
-                        types::CardLayout::DoubleFacedToken | types::CardLayout::Flip | types::CardLayout::Meld | types::CardLayout::Transform
-                            => {
-                                if let Some(ref faces) = dbc.card_faces {
-                                    match card.backface {
-                                        Some(false) => &faces[0].image_uris,
-                                        Some(true) => &faces[1].image_uris,
-                                        None => &dbc.image_uris
+    let database = database_handle.await.unwrap().unwrap();
+    let cards = preprocess_cards(&database, &mut cards);
 
-                                    }
-                                } else {&dbc.image_uris}
-                            },
-                        _   => {&dbc.image_uris}
-
-                    };
-                    if let Some(uri) = source {card.url = Some(uri.png.as_str())};
-                    
-                } else {
-                    warn!("couldn't find card in database : {}",card.name)
-                };
-            });
-        }
-        Err(e) => {
-            panic!("couldnt complete db, {}", e)
-        }
-    }
     let bodies = stream::iter(cards)
         .map(|mut card| {
             let client = &client;
@@ -171,4 +139,38 @@ fn generate_proxy_pages(
         page.save(format!("{output_dir}/page-{page_num}.png"))?;
     }
     Ok(())
+}
+
+
+pub fn preprocess_cards<'a>(db: &'a BulkDB, cards: &'a mut Vec<CardEntry<'a>>) -> Vec<CardEntry<'a>> {
+    let mut v = Vec::with_capacity(cards.len());
+    cards.iter_mut().for_each(|card| {
+        let foundc = db.0.get(&card.name);
+        if let Some(dbc) = foundc {
+            match dbc.layout {
+                types::CardLayout::DoubleFacedToken | types::CardLayout::Flip | types::CardLayout::Meld | types::CardLayout::Transform
+                => {
+                    if let Some(ref faces) = dbc.card_faces {
+                        let mut c0 = card.clone();
+                        let mut c1 = card.clone();
+                        c0.url = faces[0].image_uris.as_ref().map(|uri|{uri.png.as_str()});
+                        c1.url = faces[1].image_uris.as_ref().map(|uri|{uri.png.as_str()});
+                        v.extend([c0,c1]);
+                    } else {
+                        let mut c0 = card.clone();
+                        c0.url = dbc.image_uris.as_ref().map(|uri|{uri.png.as_ref()});
+                        v.push(c0);
+                    }
+                },
+                _   => {
+                    let mut c0 = card.clone();
+                    c0.url = dbc.image_uris.as_ref().map(|uri|{uri.png.as_ref()});
+                    v.push(c0);
+                }
+            };
+        } else {
+            warn!("couldn't find card in database : {}",card.name)
+        };
+    });
+    v
 }
