@@ -1,8 +1,7 @@
 use clap::Parser;
 use futures_util::{StreamExt, stream};
 use std::{
-    io::{Cursor, IsTerminal, Read, Write},
-    path::PathBuf, process::exit, str::FromStr,
+    env, io::{Cursor, IsTerminal, Read, Write}, path::PathBuf, process::exit, str::FromStr
 };
 
 use crate::types::{BulkDB, CardEntry};
@@ -15,7 +14,7 @@ mod parser;
 mod types;
 
 #[derive(Parser, Debug)]
-#[command(version, about)]
+#[command(version, about,ignore_errors(true))]
 struct Args {
     #[arg(short, long)]
     file: PathBuf,
@@ -68,11 +67,16 @@ async fn main() {
     });
     let mut stdin = std::io::stdin();
     let cardtext = if stdin.is_terminal() {
-        let args = Args::parse();
-        info!("Parser got args {:?}", args);
-        std::fs::read_to_string(args.file).unwrap()
+       if let Ok(args) = Args::try_parse(){
+            info!("Parser got args {:?}", args);
+            std::fs::read_to_string(args.file).unwrap()
+        } else {
+            let arg = std::env::args().collect::<Vec<String>>();
+            std::fs::read_to_string(arg[1].clone()).unwrap()
+        }
     } else {
         let mut cardtext = Default::default();
+
         let _read = stdin.read_to_string(&mut cardtext);
         cardtext
     };
